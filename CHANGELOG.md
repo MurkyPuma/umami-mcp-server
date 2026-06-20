@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — Modernized rewrite
+## 0.2.0 (Modernized rewrite)
 
 A ground-up modernization of the original
 [`jakeyShakey/umami_mcp_server`](https://github.com/jakeyShakey/umami_mcp_server)
@@ -21,8 +21,8 @@ A ground-up modernization of the original
   ranges on different machines. Conversions are now UTC and deterministic.
 - **Lighter, optional dependencies.** The core install is now just `mcp`, `httpx`, and
   `python-dotenv`. Heavy features moved behind extras:
-  - `pip install umami-mcp-server[rag]` — semantic journey search (`get_docs`).
-  - `pip install umami-mcp-server[screenshot]` — rendered screenshots (`get_screenshot`).
+  - `pip install umami-mcp-server[rag]` for semantic journey search (`get_docs`).
+  - `pip install umami-mcp-server[screenshot]` for rendered screenshots (`get_screenshot`).
 
 ### Removed
 - **Dropped crawl4ai.** `get_html` is now a direct `httpx` GET (no headless browser, no

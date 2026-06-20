@@ -1,22 +1,54 @@
+<div align="center">
+
 # Umami Analytics MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that gives Claude (or
-any MCP client) read access to your [Umami](https://umami.is) web analytics. Ask
-questions in natural language and let the model pull stats, breakdowns, pageview trends,
-live visitors, and individual user journeys, then build dashboards or surface insights.
+**Talk to your [Umami](https://umami.is) web analytics in plain English.**
+Let Claude pull your stats, spot trends, trace user journeys, and build dashboards, no SQL, no clicking through charts.
 
-This is a modernized, dependency-light rewrite of
-[`jakeyShakey/umami_mcp_server`](https://github.com/jakeyShakey/umami_mcp_server). See
-[`CHANGELOG.md`](CHANGELOG.md) for what changed and why.
+[![CI](https://github.com/MurkyPuma/umami-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/MurkyPuma/umami-mcp-server/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+![MCP](https://img.shields.io/badge/MCP-compatible-1f6feb.svg)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/MurkyPuma/umami-mcp-server/pulls)
 
-## Highlights
+</div>
 
-- **Lightweight core.** A default install is just `mcp`, `httpx`, and `python-dotenv`.
-  The heavy features (semantic search, screenshots) are opt-in extras.
-- **Async + non-blocking.** The Umami client uses `httpx.AsyncClient`, so it never
-  stalls the MCP event loop.
-- **Two auth modes.** API key (Umami Cloud / newer self-hosted) or username + password.
-- **Tested.** A pure-function `pytest` suite plus CI (ruff + pytest).
+This is a [Model Context Protocol](https://modelcontextprotocol.io) server that connects
+Umami to any MCP client (Claude Desktop, Cursor, and others). Ask a question, and the
+model picks the right analytics calls, reads the data, and answers, then you can keep
+going: drill in, compare ranges, or have it assemble a full dashboard.
+
+It is a modernized, dependency-light rewrite of
+[`jakeyShakey/umami_mcp_server`](https://github.com/jakeyShakey/umami_mcp_server):
+FastMCP, an async HTTP client, a tiny core install, optional heavy features, and a test
+suite. See [`CHANGELOG.md`](CHANGELOG.md) for the full diff in spirit.
+
+## See it in action
+
+```text
+You:    Which pages drove the most traffic last week, and where did those visitors come from?
+
+Claude: (get_websites → get_website_metrics type=url → get_website_metrics type=referrer)
+        Your top pages last week were /pricing, /blog/getting-started, and /. Most of
+        that traffic came from Google, then a Hacker News thread, then direct visits.
+        Want me to break the /pricing visitors down by country or device?
+
+You:    Yeah, and show me what a typical /pricing visitor did before they left.
+
+Claude: (get_website_metrics type=country → get_session_ids → get_tracking_data)
+        ...
+```
+
+The model drives the tools. You just ask.
+
+## Why you might want this
+
+- **Plain-language analytics.** No dashboards to navigate or queries to write.
+- **Lightweight by default.** The core install is just `mcp`, `httpx`, and `python-dotenv`. No torch, no headless browser unless you opt in.
+- **Async and non-blocking.** The Umami client is built on `httpx.AsyncClient`.
+- **Works with self-hosted or Umami Cloud.** API-key or username/password auth.
+- **Honest about quality.** Pure-function test suite plus CI (ruff + pytest) on Python 3.10 to 3.13.
 
 ## Tools
 
@@ -33,53 +65,23 @@ This is a modernized, dependency-light rewrite of
 | `get_docs` | Semantic search across many user journeys | `[rag]` |
 | `get_screenshot` | Rendered screenshot of a live page | `[screenshot]` |
 
-It also ships a **Create Dashboard** prompt that walks the model through assembling a
-full dashboard for a website and date range.
+There is also a **Create Dashboard** prompt that walks the model through building a full
+dashboard for a website and date range. Date arguments accept `YYYY-MM-DD` or
+`YYYY-MM-DD HH:MM:SS` and are interpreted as UTC.
 
-Date arguments accept `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS` and are interpreted as **UTC**.
-
-## Install
+## Quick start
 
 Requires Python 3.10+.
 
+**1. Install**
+
 ```bash
-# Core server
 pip install "git+https://github.com/MurkyPuma/umami-mcp-server.git"
-
-# With semantic journey search (get_docs) — pulls torch-sized wheels
-pip install "umami-mcp-server[rag] @ git+https://github.com/MurkyPuma/umami-mcp-server.git"
-
-# With screenshots (get_screenshot) — also run: playwright install chromium
-pip install "umami-mcp-server[screenshot] @ git+https://github.com/MurkyPuma/umami-mcp-server.git"
-
-# Everything
-pip install "umami-mcp-server[all] @ git+https://github.com/MurkyPuma/umami-mcp-server.git"
 ```
 
-If you installed the `screenshot` extra, install the browser once:
+**2. Add it to Claude Desktop**
 
-```bash
-playwright install chromium
-```
-
-## Configuration
-
-Configure via environment variables (or a local `.env`, see [`.env.example`](.env.example)):
-
-| Variable | Required | Description |
-| --- | --- | --- |
-| `UMAMI_API_URL` | yes | Your Umami base URL, e.g. `https://cloud.umami.is` |
-| `UMAMI_API_KEY` | one of | API key, sent as `x-umami-api-key` (Umami Cloud / newer self-hosted) |
-| `UMAMI_USERNAME` / `UMAMI_PASSWORD` | one of | Credentials exchanged for a bearer token |
-| `UMAMI_TEAM_ID` | no | If set, `get_websites` lists that team's sites; otherwise yours |
-| `UMAMI_TIMEOUT` | no | Per-request timeout in seconds (default 30) |
-
-Provide **either** `UMAMI_API_KEY` **or** both `UMAMI_USERNAME` and `UMAMI_PASSWORD`.
-
-## Connect to Claude Desktop
-
-Add the server to your Claude Desktop config:
-
+Edit your config file:
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Windows: `%APPDATA%/Claude/claude_desktop_config.json`
 
@@ -97,37 +99,62 @@ Add the server to your Claude Desktop config:
 }
 ```
 
-If `umami-mcp-server` isn't on Claude Desktop's `PATH`, use the absolute path to the
-console script (e.g. `/path/to/.venv/bin/umami-mcp-server`) or run the module with your
-interpreter: set `"command"` to your Python and `"args"` to `["-m", "umami_mcp"]`.
+**3. Restart Claude Desktop** and ask it something like *"List my websites and last week's
+visitors."* The tools appear under the tools (hammer) icon.
 
-Restart Claude Desktop; the tools appear under the tools (hammer) icon. Enabling the
-**Analysis tool** in Claude Desktop's feature settings lets it render dashboards and
-charts from the data.
+> If `umami-mcp-server` is not on Claude Desktop's `PATH`, use the absolute path to the
+> console script (for example `/path/to/.venv/bin/umami-mcp-server`), or set `"command"`
+> to your Python interpreter with `"args": ["-m", "umami_mcp"]`.
 
-## Usage
+## Optional features (extras)
 
-- **Guided:** attach the **Create Dashboard** prompt (the MCP attachment menu), give it a
-  website name, date range, and timezone, and let the model do the rest.
-- **Freeform:** just ask. "How many visitors last week?", "Top referrers for example.com
-  in March?", "Walk me through what users who hit checkout did." The model picks the
-  tools.
+The heavy, situational tools are opt-in so the default install stays small.
+
+```bash
+# Semantic journey search (get_docs). Pulls torch-sized wheels.
+pip install "umami-mcp-server[rag] @ git+https://github.com/MurkyPuma/umami-mcp-server.git"
+
+# Rendered screenshots (get_screenshot). Then install the browser once.
+pip install "umami-mcp-server[screenshot] @ git+https://github.com/MurkyPuma/umami-mcp-server.git"
+playwright install chromium
+
+# Everything
+pip install "umami-mcp-server[all] @ git+https://github.com/MurkyPuma/umami-mcp-server.git"
+```
+
+Without an extra, its tool still appears but returns a one-line install hint instead of
+failing, so nothing breaks.
+
+## Configuration
+
+Set these as environment variables (in the MCP client config) or in a local `.env`
+(see [`.env.example`](.env.example)).
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `UMAMI_API_URL` | yes | Your Umami base URL, for example `https://cloud.umami.is` |
+| `UMAMI_API_KEY` | one of | API key, sent as `x-umami-api-key` (Umami Cloud / newer self-hosted) |
+| `UMAMI_USERNAME` / `UMAMI_PASSWORD` | one of | Credentials exchanged for a bearer token |
+| `UMAMI_TEAM_ID` | no | If set, `get_websites` lists that team's sites; otherwise yours |
+| `UMAMI_TIMEOUT` | no | Per-request timeout in seconds (default 30) |
+
+Provide **either** `UMAMI_API_KEY`, **or** both `UMAMI_USERNAME` and `UMAMI_PASSWORD`.
 
 ## Development
 
 ```bash
+git clone https://github.com/MurkyPuma/umami-mcp-server.git
+cd umami-mcp-server
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest          # run the test suite
+pytest          # run the tests
 ruff check .    # lint
 ```
 
-The test suite is dependency-light and needs no live Umami: the async client is tested
-with `httpx.MockTransport`, and the RAG tests cover the pure chunking/ranking helpers
-(the embedding model itself is not exercised in CI).
-
-## Architecture
+No live Umami is needed to test: the async client is exercised with
+`httpx.MockTransport`, and the RAG tests cover the pure chunking/ranking helpers (the
+embedding model is not loaded in CI).
 
 ```
 src/umami_mcp/
@@ -139,6 +166,13 @@ src/umami_mcp/
   server.py    # FastMCP tools + Create Dashboard prompt
   __main__.py  # entry point
 ```
+
+## Contributing
+
+Issues and PRs are welcome. The codebase is small and the tests are fast; a good first
+contribution is adding a tool for an Umami endpoint that is not covered yet.
+
+If this saves you a trip to the Umami dashboard, a ⭐ helps other people find it.
 
 ## Credits
 
