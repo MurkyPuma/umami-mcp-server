@@ -1,6 +1,6 @@
 [project]
 name = "umami-mcp-server"
-version = "0.2.0"
+version = "0.2.1"
 description = "A Model Context Protocol (MCP) server that gives Claude (and other MCP clients) access to your Umami web analytics."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -129,6 +129,36 @@ async def test_none_event_query_param_is_dropped():
     assert seen["has_query"] is False
 
 
+async def test_metrics_translates_legacy_url_type_to_path():
+    # Current Umami renamed the page metric "url" -> "path"; the legacy name must
+    # be translated transparently so it stops 400ing.
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["type"] = request.url.params.get("type")
+        return httpx.Response(200, json=[{"x": "/best-card", "y": 9}])
+
+    client = make_client(handler, api_key="k")
+    data = await client.get_website_metrics("w1", 0, 1, "url")
+
+    assert seen["type"] == "path"
+    assert data == [{"x": "/best-card", "y": 9}]
+
+
+async def test_metrics_passes_through_non_aliased_types():
+    # A type that is already the Umami name must be sent unchanged.
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["type"] = request.url.params.get("type")
+        return httpx.Response(200, json=[])
+
+    client = make_client(handler, api_key="k")
+    for t in ("path", "entry", "exit", "referrer", "event"):
+        await client.get_website_metrics("w1", 0, 1, t)
+        assert seen["type"] == t
+
+
 async def test_http_error_is_wrapped():
     from umami_mcp.client import UmamiError
 

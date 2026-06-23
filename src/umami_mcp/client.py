@@ -21,6 +21,11 @@ logger = logging.getLogger("umami_mcp.client")
 _MAX_SESSION_PAGES = 50
 _SESSION_PAGE_SIZE = 200
 
+# Current Umami renamed the page-path breakdown metric from "url" to "path"
+# (older docs and clients still say "url", which now 400s). Accept the legacy
+# name and translate it so existing callers and prompts keep working.
+_METRIC_TYPE_ALIASES = {"url": "path"}
+
 
 class UmamiError(RuntimeError):
     """Raised when the Umami API returns an error or unexpected payload."""
@@ -140,9 +145,10 @@ class UmamiClient:
     async def get_website_metrics(
         self, website_id: str, start_at: int, end_at: int, type: str
     ) -> Any:
+        metric_type = _METRIC_TYPE_ALIASES.get(type, type)
         return await self._get(
             f"/api/websites/{website_id}/metrics",
-            {"startAt": start_at, "endAt": end_at, "type": type},
+            {"startAt": start_at, "endAt": end_at, "type": metric_type},
         )
 
     async def get_pageview_series(

@@ -28,7 +28,11 @@ mcp = FastMCP(
     ),
 )
 
-MetricType = Literal["url", "referrer", "browser", "os", "device", "country", "event"]
+MetricType = Literal[
+    "path", "entry", "exit", "title", "query",
+    "referrer", "browser", "os", "device", "country", "language", "event",
+    "url",  # deprecated alias for "path"; translated by the client
+]
 TimeUnit = Literal["hour", "day", "month"]
 
 _client: UmamiClient | None = None
@@ -91,14 +95,17 @@ async def get_website_metrics(
 ) -> str:
     """Get a breakdown of visitors by a dimension over a date range.
 
-    ``type`` selects the dimension: url (pages), referrer (traffic sources), browser,
-    os, device, country, or event (tally of tracked events).
+    ``type`` selects the dimension: path (pages), entry/exit (landing and exit
+    pages), title (page titles), query (query strings), referrer (traffic
+    sources), browser, os, device, country, language, or event (tally of tracked
+    events). ``url`` is accepted as a deprecated alias for ``path``.
 
     Args:
         website_id: The website id (from get_websites).
         start_at: Range start (UTC).
         end_at: Range end (UTC).
-        type: One of url, referrer, browser, os, device, country, event.
+        type: One of path, entry, exit, title, query, referrer, browser, os,
+            device, country, language, event (or the legacy alias url).
     """
     data = await _get_client().get_website_metrics(
         website_id, to_unix_millis(start_at), to_unix_millis(end_at, end_of_day=True), type
@@ -295,7 +302,7 @@ First call get_websites and find the id for "{website_name}". Use that id for ev
 
 1. OVERVIEW: get_website_stats for pageviews, visitors, visits, bounces, total time.
 2. TRENDS: get_pageview_series (unit 'hour' for 1-7 days, 'day' up to ~90 days, 'month' beyond).
-3. BREAKDOWNS: get_website_metrics for type url, referrer, browser, os, device, country, and event.
+3. BREAKDOWNS: get_website_metrics for type path, referrer, browser, os, device, country, and event.
 4. REAL-TIME: get_active_visitors for current activity.
 5. JOURNEYS: get_session_ids then get_tracking_data for individual sessions; get_docs to \
 find patterns across many journeys.

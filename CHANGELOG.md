@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.1
+
+### Fixed
+- **`get_website_metrics` with `type="url"` no longer 400s.** Current Umami renamed
+  the page-path breakdown metric from `url` to `path` (and dropped `host`), so the
+  long-standing `type=url` request now returns `400 Bad request`. The client maps the
+  legacy `url` to `path` so existing callers and prompts keep working.
+
+### Added
+- **More metric dimensions.** `get_website_metrics` now accepts the current Umami set:
+  `path`, `entry`, `exit`, `title`, `query`, plus `language` alongside the existing
+  `referrer`, `browser`, `os`, `device`, `country`, and `event`.
+
 ## 0.2.0 (Modernized rewrite)
 
 A ground-up modernization of the original
