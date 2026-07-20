@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2
+
+### Fixed
+- **The event-name filter on `get_session_ids` / `get_docs` works again.** The event
+  name was sent to `/api/websites/{id}/events` as the `query` parameter, which current
+  Umami interprets as the *URL query-string* filter (not a text search), so filtered
+  calls matched the wrong events or nothing at all. The client now sends the `event`
+  parameter (exact match on `event_name`) and additionally re-checks `eventName` on
+  each returned row, so older self-hosted Umami versions that ignore the `event`
+  parameter on this endpoint no longer silently return every session.
+
 ## 0.2.1
 
 ### Fixed

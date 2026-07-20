@@ -175,10 +175,13 @@ class UmamiClient:
         website_id: str,
         start_at: int,
         end_at: int,
-        query: str | None,
+        event_name: str | None,
         page: int,
         page_size: int = _SESSION_PAGE_SIZE,
     ) -> Any:
+        # Current Umami filters this endpoint by exact event name via the `event`
+        # param (mapped to event_name). The `query` param the original sent is now
+        # the url_query filter, which silently matched the wrong events.
         return await self._get(
             f"/api/websites/{website_id}/events",
             {
@@ -186,7 +189,7 @@ class UmamiClient:
                 "endAt": end_at,
                 "unit": "day",
                 "timezone": "UTC",
-                "query": query,
+                "event": event_name,
                 "page": page,
                 "pageSize": page_size,
             },
@@ -216,6 +219,10 @@ class UmamiClient:
                 break
 
             for event in payload.get("data", []):
+                # Older Umami versions ignore the `event` filter on this endpoint;
+                # re-check locally so they don't silently return every session.
+                if event_name is not None and event.get("eventName") != event_name:
+                    continue
                 session_id = event.get("sessionId")
                 if session_id:
                     session_ids.add(session_id)

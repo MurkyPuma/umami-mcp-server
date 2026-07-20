@@ -86,14 +86,25 @@ async def test_session_id_pagination_dedupes_and_stops():
             return httpx.Response(
                 200,
                 json={
-                    "data": [{"sessionId": "a"}, {"sessionId": "b"}, {"sessionId": "a"}],
+                    "data": [
+                        {"sessionId": "a", "eventName": "checkout"},
+                        {"sessionId": "b", "eventName": "checkout"},
+                        {"sessionId": "a", "eventName": "checkout"},
+                    ],
                     "count": 400,
                     "page": 1,
                 },
             )
         return httpx.Response(
             200,
-            json={"data": [{"sessionId": "b"}, {"sessionId": "c"}], "count": 400, "page": 2},
+            json={
+                "data": [
+                    {"sessionId": "b", "eventName": "checkout"},
+                    {"sessionId": "c", "eventName": "checkout"},
+                ],
+                "count": 400,
+                "page": 2,
+            },
         )
 
     client = make_client(handler, username="u", password="p")
@@ -114,19 +125,64 @@ async def test_session_ids_handle_empty_payload():
     assert await client.get_event_session_ids("w1", 0, 1, None) == []
 
 
-async def test_none_event_query_param_is_dropped():
+async def test_none_event_filter_param_is_dropped():
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/auth/login":
             return httpx.Response(200, json={"token": "t"})
-        seen["has_query"] = "query" in request.url.params
+        seen["has_event"] = "event" in request.url.params
         return httpx.Response(200, json={"data": [], "count": 0, "page": 1})
 
     client = make_client(handler, username="u", password="p")
     await client.get_event_session_ids("w1", 0, 1, None)
     # A None event filter must not become the literal string "None" in the query.
+    assert seen["has_event"] is False
+
+
+async def test_event_filter_sent_as_event_param_not_query():
+    # Current Umami filters events by name via `event` (exact match on event_name).
+    # The old `query` param is now the url_query filter and returned wrong sessions.
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(200, json={"token": "t"})
+        seen["event"] = request.url.params.get("event")
+        seen["has_query"] = "query" in request.url.params
+        return httpx.Response(200, json={"data": [], "count": 0, "page": 1})
+
+    client = make_client(handler, username="u", password="p")
+    await client.get_event_session_ids("w1", 0, 1, "checkout_completed")
+
+    assert seen["event"] == "checkout_completed"
     assert seen["has_query"] is False
+
+
+async def test_event_filter_applied_locally_when_server_ignores_it():
+    # Older Umami versions ignore the `event` param on this endpoint and return
+    # every event (pageviews included); the client must still filter locally.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(200, json={"token": "t"})
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"sessionId": "a", "eventName": "checkout"},
+                    {"sessionId": "b", "eventName": "signup"},
+                    {"sessionId": "c", "eventName": None},  # pageview row
+                    {"sessionId": "d"},  # pageview row without the key
+                ],
+                "count": 4,
+                "page": 1,
+            },
+        )
+
+    client = make_client(handler, username="u", password="p")
+    ids = await client.get_event_session_ids("w1", 0, 1, "checkout")
+
+    assert ids == ["a"]
 
 
 async def test_metrics_translates_legacy_url_type_to_path():
