@@ -2,6 +2,11 @@
 
 ## 0.3.0
 
+### Fixed
+- **Installs and CI work again.** `mcp` 2.x renamed `FastMCP` and dropped
+  `mcp.server.fastmcp`, so an unpinned `mcp>=1.2.0` resolved to 2.x and the server
+  would not start. Pinned to `mcp>=1.2.0,<2` until the server moves to the v2 API.
+
 ### Added
 - **`get_event_data`.** Custom event data was invisible: a tally said
   `feature-opened` fired 51 times but not which feature. With no arguments it lists

@@ -18,7 +18,7 @@ classifiers = [
 # Core is deliberately lightweight: just the MCP runtime + an async HTTP client.
 # The heavy, situational features live behind extras so a default install stays small.
 dependencies = [
-    "mcp>=1.2.0",
+    "mcp>=1.2.0,<2",
     "httpx>=0.28.0",
     "python-dotenv>=1.0.1",
 ]
