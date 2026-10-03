@@ -56,7 +56,8 @@ The model drives the tools. You just ask.
 | --- | --- | --- |
 | `get_websites` | Your websites and their ids (start here) | core |
 | `get_website_stats` | Pageviews, visitors, visits, bounces, total time | core |
-| `get_website_metrics` | Breakdown by url, referrer, browser, os, device, country, or event | core |
+| `get_website_metrics` | Breakdown by path, referrer, browser, os, device, country, language, hostname, or event; optional hostname filter | core |
+| `get_event_data` | Custom event properties, and one property's values with counts | core |
 | `get_pageview_series` | Pageviews/sessions time series (hour/day/month) | core |
 | `get_active_visitors` | Current real-time visitor count | core |
 | `get_session_ids` | Unique session ids in a range, optionally filtered by event | core |

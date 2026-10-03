@@ -136,19 +136,49 @@ class UmamiClient:
             path = "/api/websites"
         return await self._get(path, {"pageSize": page_size})
 
-    async def get_website_stats(self, website_id: str, start_at: int, end_at: int) -> Any:
+    async def get_website_stats(
+        self, website_id: str, start_at: int, end_at: int, hostname: str | None = None
+    ) -> Any:
         return await self._get(
             f"/api/websites/{website_id}/stats",
-            {"startAt": start_at, "endAt": end_at},
+            {"startAt": start_at, "endAt": end_at, "hostname": hostname},
         )
 
     async def get_website_metrics(
-        self, website_id: str, start_at: int, end_at: int, type: str
+        self,
+        website_id: str,
+        start_at: int,
+        end_at: int,
+        type: str,
+        hostname: str | None = None,
     ) -> Any:
         metric_type = _METRIC_TYPE_ALIASES.get(type, type)
         return await self._get(
             f"/api/websites/{website_id}/metrics",
-            {"startAt": start_at, "endAt": end_at, "type": metric_type},
+            {"startAt": start_at, "endAt": end_at, "type": metric_type, "hostname": hostname},
+        )
+
+    async def get_event_data_properties(
+        self, website_id: str, start_at: int, end_at: int
+    ) -> Any:
+        """Every (event, property) pair that carried custom data, with counts."""
+        return await self._get(
+            f"/api/websites/{website_id}/event-data/properties",
+            {"startAt": start_at, "endAt": end_at},
+        )
+
+    async def get_event_data_values(
+        self, website_id: str, start_at: int, end_at: int, event_name: str, property_name: str
+    ) -> Any:
+        """The values one event's property took, with counts."""
+        return await self._get(
+            f"/api/websites/{website_id}/event-data/values",
+            {
+                "startAt": start_at,
+                "endAt": end_at,
+                "event": event_name,
+                "propertyName": property_name,
+            },
         )
 
     async def get_pageview_series(

@@ -228,3 +228,29 @@ async def test_http_error_is_wrapped():
         assert "500" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected UmamiError")
+
+
+async def test_hostname_filter_and_event_data_endpoints():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json=[])
+
+    client = make_client(handler, api_key="secret")
+    await client.get_website_metrics("w", 1, 2, "event", hostname="app.example.com")
+    await client.get_website_stats("w", 1, 2)
+    await client.get_event_data_values("w", 1, 2, "feature-opened", "feature")
+    await client.get_event_data_properties("w", 1, 2)
+
+    assert seen[0] == (
+        "/api/websites/w/metrics",
+        {"startAt": "1", "endAt": "2", "type": "event", "hostname": "app.example.com"},
+    )
+    # No hostname means no filter, never the literal string "None".
+    assert "hostname" not in seen[1][1]
+    assert seen[2] == (
+        "/api/websites/w/event-data/values",
+        {"startAt": "1", "endAt": "2", "event": "feature-opened", "propertyName": "feature"},
+    )
+    assert seen[3][0] == "/api/websites/w/event-data/properties"

@@ -31,6 +31,7 @@ mcp = FastMCP(
 MetricType = Literal[
     "path", "entry", "exit", "title", "query",
     "referrer", "browser", "os", "device", "country", "language", "event",
+    "hostname",
     "url",  # deprecated alias for "path"; translated by the client
 ]
 TimeUnit = Literal["hour", "day", "month"]
@@ -72,7 +73,9 @@ async def get_websites() -> str:
 
 
 @mcp.tool()
-async def get_website_stats(website_id: str, start_at: str, end_at: str) -> str:
+async def get_website_stats(
+    website_id: str, start_at: str, end_at: str, hostname: str | None = None
+) -> str:
     """Get overview metrics for a website over a date range.
 
     Returns pageviews, unique visitors, visits, bounces, and total time. If you get
@@ -82,34 +85,83 @@ async def get_website_stats(website_id: str, start_at: str, end_at: str) -> str:
         website_id: The website id (from get_websites).
         start_at: Range start, 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS' (UTC).
         end_at: Range end, same formats (a bare date includes the whole day).
+        hostname: Optional: count only this hostname, for a site that tracks
+            several (see get_website_metrics with type 'hostname').
     """
     data = await _get_client().get_website_stats(
-        website_id, to_unix_millis(start_at), to_unix_millis(end_at, end_of_day=True)
+        website_id,
+        to_unix_millis(start_at),
+        to_unix_millis(end_at, end_of_day=True),
+        hostname=_normalize_event(hostname),
     )
     return _json(data)
 
 
 @mcp.tool()
 async def get_website_metrics(
-    website_id: str, start_at: str, end_at: str, type: MetricType
+    website_id: str,
+    start_at: str,
+    end_at: str,
+    type: MetricType,
+    hostname: str | None = None,
 ) -> str:
     """Get a breakdown of visitors by a dimension over a date range.
 
     ``type`` selects the dimension: path (pages), entry/exit (landing and exit
     pages), title (page titles), query (query strings), referrer (traffic
-    sources), browser, os, device, country, language, or event (tally of tracked
-    events). ``url`` is accepted as a deprecated alias for ``path``.
+    sources), browser, os, device, country, language, event (tally of tracked
+    events), or hostname (which of a site's hosts the traffic hit). ``url`` is
+    accepted as a deprecated alias for ``path``.
 
     Args:
         website_id: The website id (from get_websites).
         start_at: Range start (UTC).
         end_at: Range end (UTC).
         type: One of path, entry, exit, title, query, referrer, browser, os,
-            device, country, language, event (or the legacy alias url).
+            device, country, language, event, hostname (or the legacy alias url).
+        hostname: Optional: count only this hostname.
     """
     data = await _get_client().get_website_metrics(
-        website_id, to_unix_millis(start_at), to_unix_millis(end_at, end_of_day=True), type
+        website_id,
+        to_unix_millis(start_at),
+        to_unix_millis(end_at, end_of_day=True),
+        type,
+        hostname=_normalize_event(hostname),
     )
+    return _json(data)
+
+
+@mcp.tool()
+async def get_event_data(
+    website_id: str,
+    start_at: str,
+    end_at: str,
+    event_name: str | None = None,
+    property_name: str | None = None,
+) -> str:
+    """Get the custom data events carried: which properties, and their values.
+
+    With no ``event_name``/``property_name``, lists every (event, property) pair
+    that carried data, with counts. With both, returns the values that property
+    took on that event and how often (e.g. event 'feature-opened', property
+    'feature'), which a plain event tally cannot show.
+
+    Args:
+        website_id: The website id (from get_websites).
+        start_at: Range start (UTC).
+        end_at: Range end (UTC).
+        event_name: Optional event to break down; requires property_name.
+        property_name: Optional property of that event to break down.
+    """
+    client = _get_client()
+    start, end = to_unix_millis(start_at), to_unix_millis(end_at, end_of_day=True)
+    event_name, property_name = _normalize_event(event_name), _normalize_event(property_name)
+    if event_name and property_name:
+        data = await client.get_event_data_values(website_id, start, end, event_name, property_name)
+    elif event_name or property_name:
+        return "Pass both event_name and property_name, or neither to list them."
+    else:
+        data = await client.get_event_data_properties(website_id, start, end)
     return _json(data)
 
 

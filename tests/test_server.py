@@ -15,6 +15,7 @@ def test_expected_tools_and_prompt_are_registered():
         "get_website_stats",
         "get_website_metrics",
         "get_pageview_series",
+        "get_event_data",
         "get_active_visitors",
         "get_session_ids",
         "get_tracking_data",
@@ -43,8 +44,36 @@ async def test_get_website_stats_converts_dates_and_serializes(monkeypatch):
     assert json.loads(out) == {"pageviews": {"value": 5}}
     # Dates are converted to UTC ms, end inclusive of the whole day.
     fake.get_website_stats.assert_awaited_once_with(
-        "w1", to_unix_millis("2024-01-01"), to_unix_millis("2024-01-31", end_of_day=True)
+        "w1",
+        to_unix_millis("2024-01-01"),
+        to_unix_millis("2024-01-31", end_of_day=True),
+        hostname=None,
     )
+
+
+async def test_get_event_data_lists_properties_or_breaks_one_down(monkeypatch):
+    fake = AsyncMock()
+    fake.get_event_data_properties.return_value = [{"eventName": "e", "propertyName": "p"}]
+    fake.get_event_data_values.return_value = [{"value": "gst", "total": 7}]
+    monkeypatch.setattr(server, "_client", fake)
+    start, end = to_unix_millis("2024-01-01"), to_unix_millis("2024-01-31", end_of_day=True)
+
+    listed = await server.get_event_data("w1", "2024-01-01", "2024-01-31")
+    assert json.loads(listed) == [{"eventName": "e", "propertyName": "p"}]
+    fake.get_event_data_properties.assert_awaited_once_with("w1", start, end)
+
+    values = await server.get_event_data(
+        "w1", "2024-01-01", "2024-01-31", "feature-opened", "feature"
+    )
+    assert json.loads(values) == [{"value": "gst", "total": 7}]
+    fake.get_event_data_values.assert_awaited_once_with(
+        "w1", start, end, "feature-opened", "feature"
+    )
+
+    # Half a breakdown is a question that cannot be asked; say so, call nothing.
+    half = await server.get_event_data("w1", "2024-01-01", "2024-01-31", "feature-opened")
+    assert "both" in half
+    assert fake.get_event_data_values.await_count == 1
 
 
 async def test_get_docs_without_rag_returns_install_hint(monkeypatch):

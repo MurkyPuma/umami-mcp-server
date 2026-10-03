@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+- **`get_event_data`.** Custom event data was invisible: a tally said
+  `feature-opened` fired 51 times but not which feature. With no arguments it lists
+  every (event, property) pair that carried data; with `event_name` and
+  `property_name` it returns that property's values and counts.
+- **Hostname as a dimension and a filter.** `get_website_metrics` accepts
+  `type="hostname"`, and it and `get_website_stats` take an optional `hostname`, so
+  one Umami site that tracks several hosts (a marketing site and an app) can be
+  read one host at a time.
+
 ## 0.2.2
 
 ### Fixed
