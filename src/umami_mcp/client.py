@@ -106,24 +106,38 @@ class UmamiClient:
 
     # -- request plumbing ---------------------------------------------------
 
-    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        """GET ``path``, transparently re-logging in once on a 401 (expired token)."""
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        body: Any = None,
+    ) -> Any:
+        """Send one request, transparently re-logging in once on a 401 (expired token)."""
         await self._ensure_authenticated()
-        response = await self._client.get(path, params=_clean_params(params))
+
+        def send() -> Any:
+            return self._client.request(method, path, params=_clean_params(params), json=body)
+
+        response = await send()
 
         if response.status_code == httpx.codes.UNAUTHORIZED and not self._settings.uses_api_key:
             logger.debug("Got 401; re-authenticating once and retrying.")
             self._authenticated = False
             await self._login()
-            response = await self._client.get(path, params=_clean_params(params))
+            response = await send()
 
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise UmamiError(
-                f"Umami API error {response.status_code} for {path}: {response.text}"
+                f"Umami API error {response.status_code} for {method} {path}: {response.text}"
             ) from exc
-        return response.json()
+        # DELETE answers with an empty 200 ("ok").
+        return response.json() if response.content else {"ok": True}
+
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        return await self._request("GET", path, params)
 
     # -- endpoints ----------------------------------------------------------
 
@@ -137,11 +151,16 @@ class UmamiClient:
         return await self._get(path, {"pageSize": page_size})
 
     async def get_website_stats(
-        self, website_id: str, start_at: int, end_at: int, hostname: str | None = None
+        self,
+        website_id: str,
+        start_at: int,
+        end_at: int,
+        hostname: str | None = None,
+        filters: dict[str, str] | None = None,
     ) -> Any:
         return await self._get(
             f"/api/websites/{website_id}/stats",
-            {"startAt": start_at, "endAt": end_at, "hostname": hostname},
+            {"startAt": start_at, "endAt": end_at, "hostname": hostname, **(filters or {})},
         )
 
     async def get_website_metrics(
@@ -151,11 +170,18 @@ class UmamiClient:
         end_at: int,
         type: str,
         hostname: str | None = None,
+        filters: dict[str, str] | None = None,
     ) -> Any:
         metric_type = _METRIC_TYPE_ALIASES.get(type, type)
         return await self._get(
             f"/api/websites/{website_id}/metrics",
-            {"startAt": start_at, "endAt": end_at, "type": metric_type, "hostname": hostname},
+            {
+                "startAt": start_at,
+                "endAt": end_at,
+                "type": metric_type,
+                "hostname": hostname,
+                **(filters or {}),
+            },
         )
 
     async def get_event_data_properties(
@@ -199,6 +225,102 @@ class UmamiClient:
             f"/api/websites/{website_id}/sessions/{session_id}/activity",
             {"startAt": start_at, "endAt": end_at},
         )
+
+    # -- reports, segments, links (read and write) ---------------------------
+
+    async def run_report(
+        self,
+        website_id: str,
+        type: str,
+        parameters: dict[str, Any],
+        filters: dict[str, str] | None = None,
+    ) -> Any:
+        """Compute a report (funnel, goal, journey, ...) without saving it.
+
+        ``parameters`` must carry ``startDate``/``endDate`` (ISO strings) plus the
+        type's own fields; Umami validates them against the type's schema.
+        """
+        return await self._request(
+            "POST",
+            f"/api/reports/{type}",
+            body={
+                "websiteId": website_id,
+                "type": type,
+                "filters": filters or {},
+                "parameters": parameters,
+            },
+        )
+
+    async def list_reports(self, website_id: str, type: str | None = None) -> Any:
+        return await self._get(
+            "/api/reports", {"websiteId": website_id, "type": type, "pageSize": 200}
+        )
+
+    async def save_report(
+        self,
+        website_id: str,
+        type: str,
+        name: str,
+        parameters: dict[str, Any],
+        description: str | None = None,
+        report_id: str | None = None,
+    ) -> Any:
+        """Create a saved report, or overwrite ``report_id`` when given."""
+        path = f"/api/reports/{report_id}" if report_id else "/api/reports"
+        return await self._request(
+            "POST",
+            path,
+            body={
+                "websiteId": website_id,
+                "type": type,
+                "name": name,
+                "description": description or "",
+                "parameters": parameters,
+            },
+        )
+
+    async def delete_report(self, report_id: str) -> Any:
+        return await self._request("DELETE", f"/api/reports/{report_id}")
+
+    async def list_segments(self, website_id: str, type: str = "segment") -> Any:
+        return await self._get(f"/api/websites/{website_id}/segments", {"type": type})
+
+    async def save_segment(
+        self,
+        website_id: str,
+        name: str,
+        parameters: dict[str, Any],
+        type: str = "segment",
+        segment_id: str | None = None,
+    ) -> Any:
+        """Create a segment (or cohort), or overwrite ``segment_id`` when given."""
+        path = f"/api/websites/{website_id}/segments"
+        if segment_id:
+            path += f"/{segment_id}"
+        return await self._request(
+            "POST", path, body={"type": type, "name": name, "parameters": parameters}
+        )
+
+    async def delete_segment(self, website_id: str, segment_id: str) -> Any:
+        return await self._request(
+            "DELETE", f"/api/websites/{website_id}/segments/{segment_id}"
+        )
+
+    async def list_links(self) -> Any:
+        return await self._get("/api/links", {"pageSize": 200})
+
+    async def save_link(
+        self, name: str, url: str, slug: str, link_id: str | None = None
+    ) -> Any:
+        """Create a tracked short link, or overwrite ``link_id`` when given."""
+        path = f"/api/links/{link_id}" if link_id else "/api/links"
+        body: dict[str, Any] = {"name": name, "url": url, "slug": slug}
+        if self._settings.team_id and not link_id:
+            body["teamId"] = self._settings.team_id
+        return await self._request("POST", path, body=body)
+
+    async def delete_link(self, link_id: str) -> Any:
+        return await self._request("DELETE", f"/api/links/{link_id}")
 
     async def _get_events(
         self,

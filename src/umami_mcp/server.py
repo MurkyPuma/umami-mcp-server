@@ -9,6 +9,8 @@ this module never requires credentials or a network round-trip.
 from __future__ import annotations
 
 import json
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP, Image
@@ -22,9 +24,12 @@ mcp = FastMCP(
     "umami",
     instructions=(
         "Tools for querying Umami web analytics: website stats, metrics, pageview "
-        "time series, live visitors, and per-session user journeys. Date arguments "
-        "accept 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS' and are interpreted as UTC. "
-        "Call get_websites first to resolve a website name to its id."
+        "time series, live visitors, and per-session user journeys, plus reports "
+        "(funnels, goals, journeys, retention, UTM, attribution), segments and "
+        "tracked links, which can be run, saved, edited and deleted. Saved items "
+        "change the dashboard everyone sees. Date arguments accept 'YYYY-MM-DD' or "
+        "'YYYY-MM-DD HH:MM:SS' and are interpreted as UTC. Call get_websites first "
+        "to resolve a website name to its id."
     ),
 )
 
@@ -35,6 +40,11 @@ MetricType = Literal[
     "url",  # deprecated alias for "path"; translated by the client
 ]
 TimeUnit = Literal["hour", "day", "month"]
+ReportType = Literal[
+    "funnel", "goal", "journey", "retention", "utm", "attribution",
+    "breakdown", "performance", "revenue",
+]
+SegmentType = Literal["segment", "cohort"]
 
 _client: UmamiClient | None = None
 
@@ -49,6 +59,24 @@ def _get_client() -> UmamiClient:
 
 def _json(payload: Any) -> str:
     return json.dumps(payload, indent=2, ensure_ascii=False, default=str)
+
+
+def _filters(
+    segment_id: str | None = None, exclude_bounce: bool = False
+) -> dict[str, str]:
+    """The dashboard's own filter params: a saved segment, and the "Exclude bounce"
+    checkbox (drop visits with a single pageview, the 0-second visits)."""
+    out: dict[str, str] = {}
+    segment_id = _normalize_event(segment_id)
+    if segment_id:
+        out["segment"] = segment_id
+    if exclude_bounce:
+        out["excludeBounce"] = "true"
+    return out
+
+
+def _iso(millis: int) -> str:
+    return datetime.fromtimestamp(millis / 1000, tz=dt_timezone.utc).isoformat()
 
 
 def _normalize_event(event_name: str | None) -> str | None:
@@ -74,7 +102,12 @@ async def get_websites() -> str:
 
 @mcp.tool()
 async def get_website_stats(
-    website_id: str, start_at: str, end_at: str, hostname: str | None = None
+    website_id: str,
+    start_at: str,
+    end_at: str,
+    hostname: str | None = None,
+    segment_id: str | None = None,
+    exclude_bounce: bool = False,
 ) -> str:
     """Get overview metrics for a website over a date range.
 
@@ -87,12 +120,16 @@ async def get_website_stats(
         end_at: Range end, same formats (a bare date includes the whole day).
         hostname: Optional: count only this hostname, for a site that tracks
             several (see get_website_metrics with type 'hostname').
+        segment_id: Optional saved segment to apply (from list_segments).
+        exclude_bounce: Drop visits with a single pageview (0-second visits),
+            the dashboard's "Exclude bounce" checkbox.
     """
     data = await _get_client().get_website_stats(
         website_id,
         to_unix_millis(start_at),
         to_unix_millis(end_at, end_of_day=True),
         hostname=_normalize_event(hostname),
+        filters=_filters(segment_id, exclude_bounce),
     )
     return _json(data)
 
@@ -104,6 +141,8 @@ async def get_website_metrics(
     end_at: str,
     type: MetricType,
     hostname: str | None = None,
+    segment_id: str | None = None,
+    exclude_bounce: bool = False,
 ) -> str:
     """Get a breakdown of visitors by a dimension over a date range.
 
@@ -120,6 +159,9 @@ async def get_website_metrics(
         type: One of path, entry, exit, title, query, referrer, browser, os,
             device, country, language, event, hostname (or the legacy alias url).
         hostname: Optional: count only this hostname.
+        segment_id: Optional saved segment to apply (from list_segments).
+        exclude_bounce: Drop visits with a single pageview (0-second visits),
+            the dashboard's "Exclude bounce" checkbox.
     """
     data = await _get_client().get_website_metrics(
         website_id,
@@ -127,6 +169,7 @@ async def get_website_metrics(
         to_unix_millis(end_at, end_of_day=True),
         type,
         hostname=_normalize_event(hostname),
+        filters=_filters(segment_id, exclude_bounce),
     )
     return _json(data)
 
@@ -252,6 +295,193 @@ async def get_tracking_data(
         to_unix_millis(end_at, end_of_day=True),
     )
     return _json(data)
+
+
+# -- reports, segments and links --------------------------------------------
+
+
+@mcp.tool()
+async def run_report(
+    website_id: str,
+    type: ReportType,
+    start_at: str,
+    end_at: str,
+    parameters: dict[str, Any] | None = None,
+    hostname: str | None = None,
+    segment_id: str | None = None,
+    exclude_bounce: bool = False,
+) -> str:
+    """Compute a report over a date range without saving it.
+
+    ``parameters`` holds the type's own fields (the dates come from start_at and
+    end_at):
+
+    * funnel: ``{"window": 60, "steps": [{"type": "event", "value": "signup-started"},
+      ...]}``. 2 to 8 steps; ``type`` is "path" or "event"; a value may start or
+      end with ``*`` to match a prefix or suffix (``cta-register-*``); window is
+      the minutes allowed between steps.
+    * goal: ``{"type": "event", "value": "signup-completed"}`` (or type "path").
+    * journey: ``{"steps": 4, "startStep": "/register"}`` (2 to 7 steps).
+    * retention: ``{"timezone": "America/Vancouver"}``.
+    * utm: ``{}``. breakdown: ``{"fields": ["path", "referrer"]}``.
+    * attribution: ``{"model": "first-click", "type": "event", "step": "signup-completed"}``.
+
+    Args:
+        website_id: The website id (from get_websites).
+        type: Report type.
+        start_at: Range start (UTC).
+        end_at: Range end (UTC).
+        parameters: The type's fields, as above.
+        hostname: Optional: count only this hostname.
+        segment_id: Optional saved segment to apply.
+        exclude_bounce: Drop single-pageview (0-second) visits.
+    """
+    params = dict(parameters or {})
+    params["startDate"] = _iso(to_unix_millis(start_at))
+    params["endDate"] = _iso(to_unix_millis(end_at, end_of_day=True))
+    filters = _filters(segment_id, exclude_bounce)
+    hostname = _normalize_event(hostname)
+    if hostname:
+        filters["hostname"] = hostname
+    return _json(await _get_client().run_report(website_id, type, params, filters))
+
+
+@mcp.tool()
+async def list_reports(website_id: str, type: ReportType | None = None) -> str:
+    """List a website's saved reports (its funnels, goals, journeys...).
+
+    Args:
+        website_id: The website id (from get_websites).
+        type: Optional: only this report type.
+    """
+    return _json(await _get_client().list_reports(website_id, type))
+
+
+@mcp.tool()
+async def save_report(
+    website_id: str,
+    type: ReportType,
+    name: str,
+    parameters: dict[str, Any],
+    description: str | None = None,
+    report_id: str | None = None,
+) -> str:
+    """Save a report to the website's dashboard, or overwrite one by ``report_id``.
+
+    ``parameters`` are the type's fields as documented on run_report, without
+    dates (the dashboard applies its own range). Check the steps return data
+    with run_report first.
+
+    Args:
+        website_id: The website id (from get_websites).
+        type: Report type.
+        name: Name shown on the dashboard.
+        parameters: The type's fields.
+        description: Optional: the question the report answers.
+        report_id: Optional: an existing report to overwrite (from list_reports).
+    """
+    data = await _get_client().save_report(
+        website_id, type, name, parameters, description, _normalize_event(report_id)
+    )
+    return _json(data)
+
+
+@mcp.tool()
+async def delete_report(report_id: str) -> str:
+    """Delete a saved report. Irreversible.
+
+    Args:
+        report_id: The report to delete (from list_reports).
+    """
+    return _json(await _get_client().delete_report(report_id))
+
+
+@mcp.tool()
+async def list_segments(website_id: str, type: SegmentType = "segment") -> str:
+    """List a website's saved segments (or cohorts), with their ids and filters.
+
+    Args:
+        website_id: The website id (from get_websites).
+        type: "segment" (a saved filter) or "cohort".
+    """
+    return _json(await _get_client().list_segments(website_id, type))
+
+
+@mcp.tool()
+async def save_segment(
+    website_id: str,
+    name: str,
+    filters: list[dict[str, str]],
+    match: Literal["all", "any"] = "all",
+    type: SegmentType = "segment",
+    segment_id: str | None = None,
+) -> str:
+    """Save a segment (a named filter selectable on every dashboard view), or
+    overwrite one by ``segment_id``.
+
+    Each filter is ``{"name": <field>, "operator": <op>, "value": <string>}``.
+    Fields: path, referrer, title, query, os, browser, device, country, region,
+    city, hostname, language, event, tag, utmSource, utmMedium, utmCampaign,
+    utmContent, utmTerm. Operators: eq, neq, c (contains), dnc (does not
+    contain), s (starts with), ns, re, nre.
+
+    Args:
+        website_id: The website id (from get_websites).
+        name: Name shown in the segment picker.
+        filters: The filter rows.
+        match: "all" to AND the rows, "any" to OR them.
+        type: "segment" or "cohort".
+        segment_id: Optional: an existing segment to overwrite.
+    """
+    data = await _get_client().save_segment(
+        website_id,
+        name,
+        {"filters": filters, "match": match},
+        type,
+        _normalize_event(segment_id),
+    )
+    return _json(data)
+
+
+@mcp.tool()
+async def delete_segment(website_id: str, segment_id: str) -> str:
+    """Delete a saved segment. Irreversible.
+
+    Args:
+        website_id: The website id (from get_websites).
+        segment_id: The segment to delete (from list_segments).
+    """
+    return _json(await _get_client().delete_segment(website_id, segment_id))
+
+
+@mcp.tool()
+async def list_links() -> str:
+    """List tracked short links (Umami Links), with their slugs and destinations."""
+    return _json(await _get_client().list_links())
+
+
+@mcp.tool()
+async def save_link(name: str, url: str, slug: str, link_id: str | None = None) -> str:
+    """Create a tracked short link that counts clicks then redirects to ``url``,
+    or overwrite one by ``link_id``.
+
+    Args:
+        name: Name shown in the Links list.
+        url: Destination URL (keep any utm_* tags on it).
+        slug: The short path segment.
+        link_id: Optional: an existing link to overwrite (from list_links).
+    """
+    return _json(await _get_client().save_link(name, url, slug, _normalize_event(link_id)))
+
+
+@mcp.tool()
+async def delete_link(link_id: str) -> str:
+    """Delete a tracked short link. Irreversible: the short URL stops resolving.
+
+    Args:
+        link_id: The link to delete (from list_links).
+    """
+    return _json(await _get_client().delete_link(link_id))
 
 
 # -- semantic journey search (optional 'rag' extra) -------------------------

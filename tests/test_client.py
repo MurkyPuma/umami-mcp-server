@@ -254,3 +254,59 @@ async def test_hostname_filter_and_event_data_endpoints():
         {"startAt": "1", "endAt": "2", "event": "feature-opened", "propertyName": "feature"},
     )
     assert seen[3][0] == "/api/websites/w/event-data/properties"
+
+
+async def test_writes_post_json_and_relogin_on_401():
+    seen = []
+    state = {"logins": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            state["logins"] += 1
+            return httpx.Response(200, json={"token": "t"})
+        seen.append((request.method, request.url.path, request.content))
+        if len(seen) == 1:
+            return httpx.Response(401, json={})
+        return httpx.Response(200, json={"id": "r1"})
+
+    client = make_client(handler, username="u", password="p")
+    out = await client.save_report("w1", "goal", "Signups", {"type": "event", "value": "s"})
+
+    assert out == {"id": "r1"}
+    assert state["logins"] == 2
+    method, path, body = seen[-1]
+    assert (method, path) == ("POST", "/api/reports")
+    assert b'"websiteId": "w1"' in body or b'"websiteId":"w1"' in body
+
+
+async def test_overwrite_paths_and_empty_delete():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.method == "DELETE":
+            return httpx.Response(200)
+        return httpx.Response(200, json={})
+
+    client = make_client(handler, api_key="k", team_id="t")
+    await client.save_report("w1", "goal", "n", {}, report_id="r9")
+    await client.save_segment("w1", "Real people", {"filters": []}, segment_id="s9")
+    assert await client.delete_link("l9") == {"ok": True}
+
+    assert seen == [
+        ("POST", "/api/reports/r9"),
+        ("POST", "/api/websites/w1/segments/s9"),
+        ("DELETE", "/api/links/l9"),
+    ]
+
+
+async def test_stats_filters_reach_query_params():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(request.url.params)
+        return httpx.Response(200, json={})
+
+    client = make_client(handler, api_key="k")
+    await client.get_website_stats("w1", 0, 1, filters={"excludeBounce": "true", "segment": "s"})
+    assert seen["excludeBounce"] == "true" and seen["segment"] == "s"

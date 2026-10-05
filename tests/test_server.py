@@ -22,6 +22,16 @@ def test_expected_tools_and_prompt_are_registered():
         "get_docs",
         "get_html",
         "get_screenshot",
+        "run_report",
+        "list_reports",
+        "save_report",
+        "delete_report",
+        "list_segments",
+        "save_segment",
+        "delete_segment",
+        "list_links",
+        "save_link",
+        "delete_link",
     }
     prompts = {p.name for p in asyncio.run(server.mcp.list_prompts())}
     assert prompts == {"create_dashboard"}
@@ -48,7 +58,35 @@ async def test_get_website_stats_converts_dates_and_serializes(monkeypatch):
         to_unix_millis("2024-01-01"),
         to_unix_millis("2024-01-31", end_of_day=True),
         hostname=None,
+        filters={},
     )
+
+
+def test_filters_maps_segment_and_bounce():
+    assert server._filters() == {}
+    assert server._filters("None", False) == {}
+    assert server._filters("seg-1", True) == {"segment": "seg-1", "excludeBounce": "true"}
+
+
+async def test_run_report_sends_iso_dates_and_filters(monkeypatch):
+    fake = AsyncMock()
+    fake.run_report.return_value = [{"visitors": 3}]
+    monkeypatch.setattr(server, "_client", fake)
+
+    steps = {
+        "window": 60,
+        "steps": [{"type": "event", "value": "a"}, {"type": "event", "value": "b"}],
+    }
+    await server.run_report(
+        "w1", "funnel", "2024-01-01", "2024-01-31", steps, hostname="x.ca", exclude_bounce=True
+    )
+
+    website_id, type_, params, filters = fake.run_report.await_args.args
+    assert (website_id, type_) == ("w1", "funnel")
+    assert params["startDate"] == "2024-01-01T00:00:00+00:00"
+    assert params["endDate"].startswith("2024-01-31T23:59:59")
+    assert params["steps"] == steps["steps"]
+    assert filters == {"excludeBounce": "true", "hostname": "x.ca"}
 
 
 async def test_get_event_data_lists_properties_or_breaks_one_down(monkeypatch):

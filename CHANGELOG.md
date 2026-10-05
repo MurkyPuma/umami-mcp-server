@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+- **Write tools.** `run_report` computes a funnel, goal, journey, retention, UTM,
+  attribution or breakdown report without saving it; `save_report`,
+  `list_reports` and `delete_report` manage the saved ones. `save_segment`,
+  `list_segments`, `delete_segment` and `save_link`, `list_links`, `delete_link`
+  do the same for segments and tracked links. Shapes follow Umami 3.1's API.
+- **`segment_id` and `exclude_bounce` on `get_website_stats` and
+  `get_website_metrics`**: apply a saved segment, or drop single-pageview
+  (0-second) visits, as the dashboard's "Exclude bounce" checkbox does.
+
 ## 0.3.0
 
 ### Fixed
